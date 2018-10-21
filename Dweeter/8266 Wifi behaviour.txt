@@ -1,0 +1,42 @@
+Wifi behaviour:
+
+using the approach WiFi.begin(ssid, password):
+A single AP is specified.
+Use Dweeter4.ino to test.
+
+Scenario 1
+Initially connected to wifi, at startup.
+Later wifi fails.
+It automatically reconnects. No need for you to call WiFi.begin again.
+
+Scenario 2
+if the initial attempt itself fails:
+WiFi.begin() times out.
+But it keeps scanning every second. (for how long? find out)
+Later the AP comes up. It connects nicely, automatically.
+No need to call WiFi.begin() ever again after the initial call.
+--------------------------------------------------
+
+using the approach WiFiMulti: (Dweeter5.ino)
+3 APs are specified.
+Use Dweeter5.ino to test.
+
+At the startup, it scans and connects to the best AP
+Subsequently the best AP fails.
+It attempts to reconnect to that *same* best AP.
+Even if some other (even stronger) AP comes up later, it does not try to connect to it.
+
+If initial attempt itself fails, it never recovers from it. Even if all 3 APs come up later.
+
+Solution to both the problems: (this is in Dweeter6.ino)
+  call wifi_multi_client.run() every 5 seconds or so !
+  (Or) call it whenever a packet has to be sent and the wifi is absent.
+--------------------------------------------------
+WifiMulti (Dweet6.ino) internet experiment:
+
+I am sending a packet to Dweet every 15 seconds.
+Switched off Wifi AP1.
+Switched on another AP2 after about a minute.
+Wifi reconnected.
+All 3 missing packets were delivered to Dweet in rapid succession !
+This must be an example of the Nagle Algorithm in action.
