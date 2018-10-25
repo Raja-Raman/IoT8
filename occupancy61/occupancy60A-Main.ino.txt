@@ -1,0 +1,145 @@
+/*
+    TODO: 
+    surround all constant strings with F()
+    The JsonParser is very heavy. Implement your own.
+    Bring the HTTP work in OTA helper into HttpPoster class
+    Develop the externDeclare into a class with other utility functions
+    Disable serial port and test it.
+*/
+#include "common.h"
+#include "occupancy.h"
+
+extern void safe_strncpy (char *dest, char *src, int length = MAX_STRING_LENGTH);
+
+Timer   T;
+Config  C;
+MyJson  J;
+Hardware H; 
+HttpPoster  HP;
+CommandHandler CMD;
+
+// shared globals
+int data_timer_id = 0;
+boolean  occupied = true;        
+int temperature, humidity, heat_index, light;
+SensorData  tx_data;   // reusable cache objects
+CommandData rx_data;
+
+void setup() {
+    randomSeed(micros());
+    init_serial();   
+    C.init();      // reads the device id from flash 
+    C.targetTestUrl ();
+    C.dump();               
+    H.init(&C);             
+    HP.init(&C);
+    CMD.init(&C);
+    yield();     
+    T.after(15000L, send_restart_message);  // TODO: if this fails, try again
+    //T.every (C.tick_interval, ticker);    // TODO
+    T.every(C.command_interval, check_for_commands);  // TODO
+    data_timer_id = T.every (C.data_interval, send_data);  
+}
+
+void loop() {
+    T.update();
+    #ifdef ENABLE_DEBUG
+      check_serial();
+    #endif
+}
+
+// this is purely a development time hack to change the gateway test URL
+#ifdef ENABLE_DEBUG
+void check_serial() {
+    if(Serial.available()) {
+        SERIAL_PRINTLN("Serial data arrived!");
+        String temp = Serial.readString();
+        SERIAL_PRINT ("Gateway production URL temporarily set to: ");
+        SERIAL_PRINTLN (temp);
+        safe_strncpy (C.gateway_test_url, temp.c_str());   
+        C.targetTestUrl();
+    }
+}
+#endif
+
+void ticker(){
+    H.readPM();
+    // TODO
+}
+
+void check_for_commands(){
+    SERIAL_PRINTLN("Checking for commands from the Gateway...");
+    int result = HP.checkForCommand();
+    SERIAL_PRINT ("result code: ");
+    SERIAL_PRINTLN (result);
+    if (result==0) {
+        const char *cmd = HP.get_command();
+        process_command(cmd);  
+    }
+}
+
+void process_command(const char *jsonString) {
+    if (strlen(jsonString) == 0)
+        return;
+    SERIAL_PRINTLN (jsonString);
+    rx_data = J.deserialize (jsonString); // store a reference in the global object rx_data  
+    //CMD.handleCommand(rx_data); // TODO: enable
+}
+
+void send_restart_message() {
+    // device id and group id can change any time in the background, so
+    // we need to set them up in the payload every time
+    tx_data.device_id = C.device_id;
+    tx_data.group_id = C.group_id;
+    tx_data.node_status = STATUS_RESTARTED;                   
+    tx_data.status_param = FIRMWARE_VERSION;
+    const char* msg = J.serialize (tx_data);
+    print ("Main: Sending restart message..");
+    int result = HP.sendStatus(msg));
+    SERIAL_PRINT ("Http post result: ");
+    SERIAL_PRINTLN(result);
+}
+
+void send_response(long command, int response) {
+    tx_data.device_id = C.device_id;
+    tx_data.group_id = C.group_id;
+    tx_data.node_status = response;                   
+    tx_data.status_param = command;  
+    const char* msg = J.serialize (tx_data);
+    SERIAL_PRINTLN("Main: Sending command response to command.. ");
+    int result = HP.sendStatus(msg));
+    SERIAL_PRINT ("Http post result: ");
+    SERIAL_PRINTLN(result);
+}
+
+// periodic staus updates   
+void send_data() {
+    tx_data.device_id = C.device_id;
+    tx_data.group_id = C.group_id;
+    tx_data.node_status = random(1, 5);
+    tx_data.status_param = CMDX_REGULAR_DATA;   
+    tx_data.temperature = random(19, 36);
+    tx_data.humidity = random (0, 101);
+    tx_data.light = random (0, 101);   
+    tx_data.heat_index = random(19, 40);
+    const char* msg = J.serialize (tx_data);
+    SERIAL_PRINTLN("Main: about to send data..");
+    SERIAL_PRINTLN(msg);
+    SERIAL_PRINT("Json payload size: ");
+    SERIAL_PRINTLN(strlen(msg));
+    int result = HP.sendStatus(msg));
+    SERIAL_PRINT ("Http post result: ");
+    SERIAL_PRINTLN(result);
+}
+
+void init_serial () {
+    #ifdef ENABLE_DEBUG
+        //Serial.begin(C.baud_rate);  // there is no C !
+        Serial.begin(BAUD_RATE); 
+        #ifdef VERBOSE_MODE
+          Serial.setDebugOutput(true);
+        #endif
+        Serial.setTimeout(250);
+    #endif    
+    SERIAL_PRINTLN("\n\n********************* Vz IoT starting... ********************\n"); 
+}
