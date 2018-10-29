@@ -1,0 +1,1 @@
+python thermalcam13.py 12 1 1 32 37
